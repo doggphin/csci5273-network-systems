@@ -32,6 +32,11 @@ typedef enum {
 } HttpStatusCode;
 
 typedef enum {
+    HTTP_1_0,
+    HTTP_1_1
+} HttpVersion;
+
+typedef enum {
     REQUESTMETHOD_GET = 0,
     REQUESTMETHOD_POST = 1,
     REQUESTMETHOD_HEAD = 2,

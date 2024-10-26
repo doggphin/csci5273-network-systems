@@ -34,8 +34,6 @@ int read_request(char *msg, int message_len, HttpRequest *out_request) {
     // read_X means read this current iteration's string as X
     // First delimited string should be the method
     for(int read_method = 1, read_file = 0, read_connection = 0; (token = strtok_r(rest, " \r\n", &rest));) {
-        printf("Current token is: \"%s\"\n", token);
-
         if(read_method) {
             if(strcmp(token, "GET") == 0) {
                 request_method = REQUESTMETHOD_GET;
@@ -89,39 +87,101 @@ int read_request(char *msg, int message_len, HttpRequest *out_request) {
 */
 int get_file_content(char *file_request,
                     FileType *out_file_type,
-                    char *out_file_data,
+                    char **out_file_data,
                     size_t *out_file_data_len,
                     HttpStatusCode *out_status_code)
 {
 
     char* file_extension = strrchr(file_request, '.');
-    if(file_extension == NULL) {
-        printf("\"%s\" is asking for the index!\n", file_request);
+    if(file_extension == NULL && strlen(file_request) == 1 && file_request[0] == '/') {
+        file_request = "/index.html\0";
+        *out_file_type = FILETYPE_HTML;
+    } else {
+        if(strcmp(file_extension, "html") == 0) {
+            *out_file_type = FILETYPE_HTML;
+        } else if(strcmp(file_extension, "txt") == 0) {
+            *out_file_type = FILETYPE_TXT;
+        } else if(strcmp(file_extension, "png") == 0) {
+            *out_file_type = FILETYPE_PNG;
+        } else if(strcmp(file_extension, "gif") == 0) {
+            *out_file_type = FILETYPE_GIF;
+        } else if(strcmp(file_extension, "jpg") == 0) {
+            *out_file_type = FILETYPE_JPG;
+        } else if(strcmp(file_extension, "ico") == 0) {
+            *out_file_type = FILETYPE_ICO;
+        } else if(strcmp(file_extension, "css") == 0) {
+            *out_file_type = FILETYPE_CSS;
+        } else if(strcmp(file_extension, "js") == 0) {
+            *out_file_type = FILETYPE_JS;
+        } else {
+            *out_status_code = STATUSCODE_BAD_REQUEST;
+    
+            sprintf(*out_file_data, "Extension \"%s\" of requested file \"%s\" not recognized!", file_extension, file_request);
+            printf("Ran into error with extension: \"%s\"\n", *out_file_data);
+            *out_file_data_len = strlen(*out_file_data);
+            return 0;
+        }
     }
-    printf("File extension is %s\n", file_extension);
+    
+    printf("SUCCESS: Got the file extension (%d)!\n", *out_file_type);
+    printf("SUCCESS: File to read is \"%s\"!\n", file_request);
+
+    char formatted_file_request[256];
+    sprintf(formatted_file_request, ".%s", file_request);
+
+    FILE *file_ptr = fopen(formatted_file_request, "rb");
+    if(file_ptr == NULL) {
+        *out_status_code = STATUSCODE_NOT_FOUND;
+        *out_file_data = "Requested file does not exist!\0";
+        *out_file_data_len = strlen(*out_file_data);
+        return 0;
+    }
+    fseek(file_ptr, 0, SEEK_END);
+    *out_file_data_len = ftell(file_ptr);
+    rewind(file_ptr);
+
+    *out_file_data = (char*)malloc(*out_file_data_len * sizeof(char));
+    fread(*out_file_data, *out_file_data_len, 1, file_ptr);
+    fclose(file_ptr);
+    
     return 0;
 }
 
 
 int write_response(HttpRequest *request, char* out_response) {
     int err;
-    char content_type_buf[MAXSIZE];
-    char file_data_buf[MAXSIZE];
+    char *file_data_buf;
     size_t file_data_len;
-    HttpStatusCode status_code;
+    HttpStatusCode status_code = STATUSCODE_OK;
     FileType file_type;
 
-    printf("Reading file contents!\n");
-    err = get_file_content(request->file_path, &file_type, file_data_buf, &file_data_len, &status_code);
+    err = get_file_content(request->file_path, &file_type, &file_data_buf, &file_data_len, &status_code);
     if(err != 0) {
+        printf("Returning early!\n");
         return err;
     }
-    printf("Read file contents!\n");
 
     char response_status[RESPONSE_STATUS_BUFSIZE];
     get_response_status(status_code, response_status);
 
-    char *keep_alive_buf = "Connection: Keep-alive\r\n\0";
+    char *keep_alive_buf;
+    switch(request->connection_type) {
+        case CONNECTIONTYPE_KEEP_ALIVE:
+            keep_alive_buf = "Connection: Keep-alive\r\n\0";
+            break;
+        default:
+            keep_alive_buf = "";
+            break;
+    }
+    
+    char *content_type_buf;
+    switch(file_type) {
+        case FILETYPE_HTML:
+            content_type_buf = "text/html";
+        default:
+            content_type_buf = "";
+    }
+
 
     bzero(out_response, MAXSIZE);
     sprintf(out_response,
@@ -129,11 +189,27 @@ int write_response(HttpRequest *request, char* out_response) {
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "%s"
-        "\r\n",
-        response_status, content_type_buf, file_data_len, request->connection_type == CONNECTIONTYPE_KEEP_ALIVE ? keep_alive_buf : ""
+        "\r\n"
+        "%s",
+
+        response_status, 
+        content_type_buf, 
+        file_data_len,
+        request->connection_type == CONNECTIONTYPE_KEEP_ALIVE ? keep_alive_buf : "",
+        file_data_buf
+    );
+
+    printf(
+        "SUCCESS: Response is:\n"
+        "=-=-=-=-=\n"
+        "%s\n"
+        "=-=-=-=-=\n"
+        , out_response
     );
     
-    return 1;
+    free(file_data_buf);
+
+    return 0;
 }
 
 
@@ -149,20 +225,19 @@ int handle_request(char* msg, int req_len, char* out_response) {
     printf("SUCCESS: Read request!\n");
     printf("START: Writing response!\n");
 
-    char response[MAXSIZE];
-    if(write_response(&req, response) != 0) {
+    if(write_response(&req, out_response) != 0) {
         perror("Ran into an error making a response!");
         return 1;
     }
 
-    printf("SUCCESS: Wrote response!\n");
 
+    printf("SUCCESS: Wrote response!\n");
     return 0;
 }
 
 
 int main(int argc, char** argv) {
-    int port = 7504;
+    int port = 7511;
     int listen_fd, conn_fd, message_len;
     pid_t child_pid;
     socklen_t client_len;
@@ -200,12 +275,9 @@ int main(int argc, char** argv) {
             close(listen_fd);
 
             while((message_len = recv(conn_fd, buf, MAXSIZE, 0)) > 0) {
-                printf("String received from client!\n");
-
                 char response[MAXSIZE];
                 handle_request(buf, message_len, response);
-
-                send(conn_fd, buf, message_len, 0);
+                send(conn_fd, response, strlen(response), 0);
             }   
 
             if(message_len < 0) {
