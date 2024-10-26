@@ -91,31 +91,33 @@ int get_file_content(char *file_request,
                     size_t *out_file_data_len,
                     HttpStatusCode *out_status_code)
 {
-
+    printf("Getting file extension!\n");
     char* file_extension = strrchr(file_request, '.');
     if(file_extension == NULL && strlen(file_request) == 1 && file_request[0] == '/') {
         file_request = "/index.html\0";
         *out_file_type = FILETYPE_HTML;
     } else {
+        printf("Getting something that isn't the index, %s!\n", file_extension);
         if(strcmp(file_extension, "html") == 0) {
             *out_file_type = FILETYPE_HTML;
-        } else if(strcmp(file_extension, "txt") == 0) {
+        } else if(strcmp(file_extension, ".txt") == 0) {
             *out_file_type = FILETYPE_TXT;
-        } else if(strcmp(file_extension, "png") == 0) {
+        } else if(strcmp(file_extension, ".png") == 0) {
             *out_file_type = FILETYPE_PNG;
-        } else if(strcmp(file_extension, "gif") == 0) {
+        } else if(strcmp(file_extension, ".gif") == 0) {
             *out_file_type = FILETYPE_GIF;
-        } else if(strcmp(file_extension, "jpg") == 0) {
+        } else if(strcmp(file_extension, ".jpg") == 0) {
             *out_file_type = FILETYPE_JPG;
-        } else if(strcmp(file_extension, "ico") == 0) {
+        } else if(strcmp(file_extension, ".ico") == 0) {
             *out_file_type = FILETYPE_ICO;
-        } else if(strcmp(file_extension, "css") == 0) {
+        } else if(strcmp(file_extension, ".css") == 0) {
             *out_file_type = FILETYPE_CSS;
-        } else if(strcmp(file_extension, "js") == 0) {
+        } else if(strcmp(file_extension, ".js") == 0) {
             *out_file_type = FILETYPE_JS;
         } else {
+            *out_file_type = FILETYPE_ERROR;
             *out_status_code = STATUSCODE_BAD_REQUEST;
-    
+            *out_file_data = (char*)malloc(256 * sizeof(char));
             sprintf(*out_file_data, "Extension \"%s\" of requested file \"%s\" not recognized!", file_extension, file_request);
             printf("Ran into error with extension: \"%s\"\n", *out_file_data);
             *out_file_data_len = strlen(*out_file_data);
@@ -131,8 +133,10 @@ int get_file_content(char *file_request,
 
     FILE *file_ptr = fopen(formatted_file_request, "rb");
     if(file_ptr == NULL) {
+        *out_file_type = FILETYPE_ERROR;
         *out_status_code = STATUSCODE_NOT_FOUND;
-        *out_file_data = "Requested file does not exist!\0";
+        *out_file_data = (char*)malloc(256 * sizeof(char));
+        sprintf(*out_file_data, "Requested file does not exist!");
         *out_file_data_len = strlen(*out_file_data);
         return 0;
     }
@@ -176,10 +180,36 @@ int write_response(HttpRequest *request, char* out_response) {
     
     char *content_type_buf;
     switch(file_type) {
+        case FILETYPE_ERROR:
+            content_type_buf = "text/plain\0";
+            break;
         case FILETYPE_HTML:
-            content_type_buf = "text/html";
+            content_type_buf = "text/html\0";
+            break;
+        case FILETYPE_TXT:
+            content_type_buf = "text/plain\0";
+            break;
+        case FILETYPE_PNG:
+            content_type_buf = "image/png\0";
+            break;
+        case FILETYPE_GIF:
+            content_type_buf = "image/gif\0";
+            break;
+        case FILETYPE_JPG:
+            content_type_buf = "image/jpg\0";
+            break;
+        case FILETYPE_ICO:
+            content_type_buf = "image/x-icon\0";
+            break;
+        case FILETYPE_CSS:
+            content_type_buf = "text/css\0";
+            break;
+        case FILETYPE_JS:
+            content_type_buf = "application/javascript\0";
+            break;
         default:
-            content_type_buf = "";
+            content_type_buf = "\0";
+            break;
     }
 
 
@@ -189,15 +219,21 @@ int write_response(HttpRequest *request, char* out_response) {
         "Content-Type: %s\r\n"
         "Content-Length: %ld\r\n"
         "%s"
-        "\r\n"
-        "%s",
+        "\r\n",
 
         response_status, 
         content_type_buf, 
         file_data_len,
-        request->connection_type == CONNECTIONTYPE_KEEP_ALIVE ? keep_alive_buf : "",
-        file_data_buf
+        request->connection_type == CONNECTIONTYPE_KEEP_ALIVE ? keep_alive_buf : ""
     );
+
+
+    for(int i=0; i<MAXSIZE; i++) {
+        if(out_response[i] == '\0') {
+            memcpy(&out_response[i], file_data_buf, file_data_len);
+            break;
+        }
+    }
 
     printf(
         "SUCCESS: Response is:\n"
@@ -237,7 +273,7 @@ int handle_request(char* msg, int req_len, char* out_response) {
 
 
 int main(int argc, char** argv) {
-    int port = 7511;
+    int port = 7520;
     int listen_fd, conn_fd, message_len;
     pid_t child_pid;
     socklen_t client_len;

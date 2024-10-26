@@ -12,14 +12,15 @@
 #define LISTENQ 8
 
 typedef enum {
-    FILETYPE_HTML = 0,
-    FILETYPE_TXT = 1,
-    FILETYPE_PNG = 2,
-    FILETYPE_GIF = 3,
-    FILETYPE_JPG = 4,
-    FILETYPE_ICO = 5,
-    FILETYPE_CSS = 6,
-    FILETYPE_JS = 7,
+    FILETYPE_ERROR = 0,
+    FILETYPE_HTML = 1,
+    FILETYPE_TXT = 2,
+    FILETYPE_PNG = 3,
+    FILETYPE_GIF = 4,
+    FILETYPE_JPG = 5,
+    FILETYPE_ICO = 6,
+    FILETYPE_CSS = 7,
+    FILETYPE_JS = 8,
 } FileType;
 
 typedef enum {
